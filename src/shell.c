@@ -1,47 +1,6 @@
 #include "shell.h"
 
 
-char** tokenize(char* cmdline) {
-    // Edge case: empty command line
-    if (cmdline == NULL || cmdline[0] == '\0' || cmdline[0] == '\n') {
-        return NULL;
-    }
-
-    char** arglist = (char**)malloc(sizeof(char*) * (MAXARGS + 1));
-    for (int i = 0; i < MAXARGS + 1; i++) {
-        arglist[i] = (char*)malloc(sizeof(char) * ARGLEN);
-        bzero(arglist[i], ARGLEN);
-    }
-
-    char* cp = cmdline;
-    char* start;
-    int len;
-    int argnum = 0;
-
-    while (*cp != '\0' && argnum < MAXARGS) {
-        while (*cp == ' ' || *cp == '\t') cp++; // Skip leading whitespace
-        
-        if (*cp == '\0') break; // Line was only whitespace
-
-        start = cp;
-        len = 1;
-        while (*++cp != '\0' && !(*cp == ' ' || *cp == '\t')) {
-            len++;
-        }
-        strncpy(arglist[argnum], start, len);
-        arglist[argnum][len] = '\0';
-        argnum++;
-    }
-
-    if (argnum == 0) { // No arguments were parsed
-        for(int i = 0; i < MAXARGS + 1; i++) free(arglist[i]);
-        free(arglist);
-        return NULL;
-    }
-
-    arglist[argnum] = NULL;
-    return arglist;
-}
 // ---------------- Command history ----------------
 static char* history[HISTORY_SIZE];   // last 20 commands
 static int   hist_count = 0;          // how many are stored right now
@@ -76,4 +35,55 @@ char* read_cmd(char* prompt, FILE* fp) {
     if (cmdline[0] != '\0')             // only non-empty lines go to readline's history
         add_history(cmdline);           // makes UP/DOWN arrows work
     return cmdline;                     // malloc'd by readline -> main() free()s it
+}
+
+// ---------------- Tokenizer with operators and quotes ----------------
+#define IS_OP(c) ((c) == '<' || (c) == '>' || (c) == '|')
+
+char** tokenize(char* cmdline) {
+    if (cmdline == NULL || cmdline[0] == '\0')
+        return NULL;
+
+    char** arglist = (char**)malloc(sizeof(char*) * (MAXARGS + 1));
+    char* buf = (char*)malloc(strlen(cmdline) + 1);   // scratch space for one token
+    int argnum = 0;
+    char* cp = cmdline;
+
+    while (*cp != '\0') {
+        while (*cp == ' ' || *cp == '\t') cp++;       // skip whitespace
+        if (*cp == '\0') break;
+
+        if (argnum >= MAXARGS) {
+            fprintf(stderr, "myshell: too many arguments (max %d)\n", MAXARGS);
+            break;
+        }
+
+        int len = 0;
+        if (IS_OP(*cp)) {
+            buf[len++] = *cp++;                        // < > | is a token by itself
+        } else {
+            char quote = 0;                            // 0 = not inside quotes
+            while (*cp != '\0' && (quote || !(*cp == ' ' || *cp == '\t' || IS_OP(*cp)))) {
+                if (quote) {
+                    if (*cp == quote) quote = 0;       // closing quote (not copied)
+                    else buf[len++] = *cp;             // inside quotes: copy everything
+                } else if (*cp == '"' || *cp == '\'') {
+                    quote = *cp;                       // opening quote (not copied)
+                } else {
+                    buf[len++] = *cp;
+                }
+                cp++;
+            }
+        }
+        buf[len] = '\0';
+        arglist[argnum++] = strdup(buf);               // each token gets its own heap copy
+    }
+    free(buf);
+
+    if (argnum == 0) {
+        free(arglist);
+        return NULL;
+    }
+    arglist[argnum] = NULL;
+    return arglist;
 }

@@ -4,10 +4,10 @@ int main() {
     char* cmdline;
 
     while (1) {
-        reap_background();                          // collect zombies BEFORE the prompt
+        reap_background();
 
         cmdline = read_cmd(PROMPT, stdin);
-        if (cmdline == NULL)                        // Ctrl+D
+        if (cmdline == NULL)
             break;
 
         if (cmdline[0] == '\0') {
@@ -15,7 +15,7 @@ int main() {
             continue;
         }
 
-        if (cmdline[0] == '!') {                    // history re-execution
+        if (cmdline[0] == '!') {
             int n = atoi(cmdline + 1);
             char* old = get_history(n);
             if (old == NULL) {
@@ -29,7 +29,15 @@ int main() {
         }
 
         add_to_history(cmdline);
-        run_line(cmdline);                          // handles ; & built-ins execute
+
+        // "if" starts a multi-line block
+        if (strncmp(cmdline, "if", 2) == 0 && (cmdline[2] == ' ' || cmdline[2] == '\0')) {
+            handle_if(cmdline);
+            free(cmdline);
+            continue;
+        }
+
+        run_line(cmdline);
         free(cmdline);
     }
 

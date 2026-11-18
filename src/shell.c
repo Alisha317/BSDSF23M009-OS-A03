@@ -146,3 +146,70 @@ int run_line(char* line) {
     }
     return status;
 }
+
+
+// ---------------- if / then / else / fi ----------------
+#define MAX_BLOCK 64
+
+static char* skip_spaces(char* s) {
+    while (*s == ' ' || *s == '\t') s++;
+    return s;
+}
+
+int handle_if(char* first_line) {
+    char* then_cmds[MAX_BLOCK];
+    char* else_cmds[MAX_BLOCK];
+    int nthen = 0, nelse = 0;
+    int state = 0;                 // 0 = waiting "then", 1 = then-block, 2 = else-block
+    int done = 0, bad = 0;
+
+    char* cond = skip_spaces(first_line + 2);      // text after "if"
+    if (*cond == '\0') {
+        fprintf(stderr, "myshell: syntax error: missing condition after 'if'\n");
+        return 1;
+    }
+    cond = strdup(cond);                           // run_line() modifies its argument
+
+    while (!done && !bad) {
+        char* line = readline("> ");               // continuation prompt
+        if (line == NULL) {                        // Ctrl+D before "fi"
+            bad = 1;
+            break;
+        }
+        char* p = skip_spaces(line);
+
+        if (*p == '\0') {
+            /* blank line: ignore */
+        } else if (state == 0 && strcmp(p, "then") == 0) {
+            state = 1;
+        } else if (state == 1 && strcmp(p, "else") == 0) {
+            state = 2;
+        } else if (state >= 1 && strcmp(p, "fi") == 0) {
+            done = 1;
+        } else if (state == 1 && nthen < MAX_BLOCK) {
+            then_cmds[nthen++] = strdup(p);
+        } else if (state == 2 && nelse < MAX_BLOCK) {
+            else_cmds[nelse++] = strdup(p);
+        } else {
+            bad = 1;
+        }
+        free(line);
+    }
+
+    int status = 1;
+    if (bad) {
+        fprintf(stderr, "myshell: syntax error in if-block\n");
+    } else {
+        status = run_line(cond);                                // run the condition
+        char** block = (status == 0) ? then_cmds : else_cmds;   // pick a block
+        int n = (status == 0) ? nthen : nelse;
+        for (int i = 0; i < n; i++)
+            run_line(block[i]);
+        status = 0;
+    }
+
+    free(cond);
+    for (int i = 0; i < nthen; i++) free(then_cmds[i]);
+    for (int i = 0; i < nelse; i++) free(else_cmds[i]);
+    return status;
+}

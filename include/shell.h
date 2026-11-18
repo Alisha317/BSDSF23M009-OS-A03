@@ -24,6 +24,7 @@ char** tokenize(char* cmdline);
 int execute(char** arglist, int background);
 void reap_background(void);
 int run_line(char* line);
+int handle_if(char* first_line);   // reads rest of an if-block and runs it
 void add_to_history(const char* cmd);
 void show_history(void);
 char* get_history(int n);   // n is 1-based; NULL if out of range

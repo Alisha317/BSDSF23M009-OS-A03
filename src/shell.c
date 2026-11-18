@@ -1,23 +1,5 @@
 #include "shell.h"
 
-char* read_cmd(char* prompt, FILE* fp) {
-    printf("%s", prompt);
-    char* cmdline = (char*) malloc(sizeof(char) * MAX_LEN);
-    int c, pos = 0;
-
-    while ((c = getc(fp)) != EOF) {
-        if (c == '\n') break;
-        cmdline[pos++] = c;
-    }
-
-    if (c == EOF && pos == 0) {
-        free(cmdline);
-        return NULL; // Handle Ctrl+D
-    }
-    
-    cmdline[pos] = '\0';
-    return cmdline;
-}
 
 char** tokenize(char* cmdline) {
     // Edge case: empty command line
@@ -83,4 +65,15 @@ char* get_history(int n) {
     if (n < 1 || n > hist_count)
         return NULL;                              // out of bounds
     return history[n - 1];
+}
+
+// ---------------- Input via GNU Readline ----------------
+char* read_cmd(char* prompt, FILE* fp) {
+    (void)fp;                           // readline() reads from the terminal itself
+    char* cmdline = readline(prompt);   // prints prompt, handles editing, arrows, TAB
+    if (cmdline == NULL)                // Ctrl+D (EOF)
+        return NULL;
+    if (cmdline[0] != '\0')             // only non-empty lines go to readline's history
+        add_history(cmdline);           // makes UP/DOWN arrows work
+    return cmdline;                     // malloc'd by readline -> main() free()s it
 }

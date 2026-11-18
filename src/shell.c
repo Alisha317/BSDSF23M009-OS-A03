@@ -114,7 +114,8 @@ static int run_single(char* cmd) {
     if (arglist[0] == NULL) {
         fprintf(stderr, "myshell: syntax error near '&'\n");
         status = 1;
-    } else {
+        } else {
+        expand_variables(arglist);
         if (handle_builtin(arglist) == 0)
             status = execute(arglist, background);
     }
@@ -212,4 +213,86 @@ int handle_if(char* first_line) {
     for (int i = 0; i < nthen; i++) free(then_cmds[i]);
     for (int i = 0; i < nelse; i++) free(else_cmds[i]);
     return status;
+}
+
+// ---------------- Shell variables (linked list) ----------------
+typedef struct Var {
+    char* name;
+    char* value;
+    struct Var* next;
+} Var;
+
+static Var* var_head = NULL;
+
+static const char* get_var(const char* name) {
+    for (Var* v = var_head; v != NULL; v = v->next)
+        if (strcmp(v->name, name) == 0)
+            return v->value;
+    return NULL;
+}
+
+static void set_var(const char* name, const char* value) {
+    for (Var* v = var_head; v != NULL; v = v->next) {
+        if (strcmp(v->name, name) == 0) {          // exists -> update
+            free(v->value);
+            v->value = strdup(value);
+            return;
+        }
+    }
+    Var* nv = (Var*)malloc(sizeof(Var));           // new variable at the END
+    nv->name  = strdup(name);
+    nv->value = strdup(value);
+    nv->next  = NULL;
+    if (var_head == NULL) {
+        var_head = nv;
+    } else {
+        Var* tail = var_head;
+        while (tail->next != NULL) tail = tail->next;
+        tail->next = nv;
+    }
+}
+
+void print_vars(void) {
+    for (Var* v = var_head; v != NULL; v = v->next)
+        printf("%s=%s\n", v->name, v->value);
+}
+
+// If arglist[0] looks like NAME=value, store it and return 1; else 0.
+int try_assignment(char** arglist) {
+    char* eq = strchr(arglist[0], '=');
+    if (eq == NULL || eq == arglist[0])
+        return 0;
+
+    for (char* c = arglist[0]; c < eq; c++) {      // valid name: letters, digits, _
+        if (!(isalpha((unsigned char)*c) || *c == '_' ||
+              (isdigit((unsigned char)*c) && c != arglist[0])))
+            return 0;
+    }
+
+    char* name = strndup(arglist[0], eq - arglist[0]);
+    char* value;
+    if (eq[1] == '$' && eq[2] != '\0') {           // B=$A -> copy A's value
+        const char* src = get_var(eq + 2);
+        value = strdup(src ? src : "");
+    } else {
+        value = strdup(eq + 1);
+    }
+    set_var(name, value);
+    free(name);
+    free(value);
+    return 1;
+}
+
+// Replace every argument that starts with '$' by the variable's value.
+void expand_variables(char** arglist) {
+    for (int i = 0; arglist[i] != NULL; i++) {
+        if (arglist[i][0] == '$' && arglist[i][1] != '\0') {
+            const char* val = get_var(arglist[i] + 1);
+            if (val == NULL) val = getenv(arglist[i] + 1);   // fall back to environment
+            if (val == NULL) val = "";                        // undefined -> empty
+            char* copy = strdup(val);
+            free(arglist[i]);
+            arglist[i] = copy;
+        }
+    }
 }

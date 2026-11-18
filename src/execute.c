@@ -207,5 +207,13 @@ int handle_builtin(char** arglist) {
         return 1;
     }
 
+        if (strcmp(arglist[0], "set") == 0) {
+        print_vars();
+        return 1;
+    }
+
+    if (try_assignment(arglist))        // NAME=value
+        return 1;
+
     return 0;   // not a built-in
 }

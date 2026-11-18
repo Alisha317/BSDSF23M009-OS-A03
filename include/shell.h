@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -25,6 +26,9 @@ int execute(char** arglist, int background);
 void reap_background(void);
 int run_line(char* line);
 int handle_if(char* first_line);   // reads rest of an if-block and runs it
+void expand_variables(char** arglist);
+int try_assignment(char** arglist);
+void print_vars(void);
 void add_to_history(const char* cmd);
 void show_history(void);
 char* get_history(int n);   // n is 1-based; NULL if out of range

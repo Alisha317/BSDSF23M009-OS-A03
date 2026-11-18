@@ -2,19 +2,21 @@
 
 int main() {
     char* cmdline;
-    char** arglist;
 
-    while ((cmdline = read_cmd(PROMPT, stdin)) != NULL) {
+    while (1) {
+        reap_background();                          // collect zombies BEFORE the prompt
 
-        // Empty line: nothing to run and nothing to store
+        cmdline = read_cmd(PROMPT, stdin);
+        if (cmdline == NULL)                        // Ctrl+D
+            break;
+
         if (cmdline[0] == '\0') {
             free(cmdline);
             continue;
         }
 
-        // "!n" must be handled BEFORE tokenizing and BEFORE adding to history
-        if (cmdline[0] == '!') {
-            int n = atoi(cmdline + 1);              // number after '!'
+        if (cmdline[0] == '!') {                    // history re-execution
+            int n = atoi(cmdline + 1);
             char* old = get_history(n);
             if (old == NULL) {
                 fprintf(stderr, "myshell: !%s: event not found\n", cmdline + 1);
@@ -22,20 +24,12 @@ int main() {
                 continue;
             }
             free(cmdline);
-            cmdline = strdup(old);                  // copy it, then treat as typed input
-            printf("%s\n", cmdline);                // echo the command being re-run
+            cmdline = strdup(old);
+            printf("%s\n", cmdline);
         }
 
         add_to_history(cmdline);
-
-        if ((arglist = tokenize(cmdline)) != NULL) {
-            if (handle_builtin(arglist) == 0)
-                execute(arglist);
-
-            for (int i = 0; arglist[i] != NULL; i++)
-                free(arglist[i]);
-            free(arglist);
-        }
+        run_line(cmdline);                          // handles ; & built-ins execute
         free(cmdline);
     }
 

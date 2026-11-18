@@ -21,7 +21,9 @@
 // Function prototypes
 char* read_cmd(char* prompt, FILE* fp);
 char** tokenize(char* cmdline);
-int execute(char** arglist);
+int execute(char** arglist, int background);
+void reap_background(void);
+int run_line(char* line);
 void add_to_history(const char* cmd);
 void show_history(void);
 char* get_history(int n);   // n is 1-based; NULL if out of range

@@ -38,7 +38,7 @@ char* read_cmd(char* prompt, FILE* fp) {
 }
 
 // ---------------- Tokenizer with operators and quotes ----------------
-#define IS_OP(c) ((c) == '<' || (c) == '>' || (c) == '|')
+#define IS_OP(c) ((c) == '<' || (c) == '>' || (c) == '|' || (c) == '&')
 
 char** tokenize(char* cmdline) {
     if (cmdline == NULL || cmdline[0] == '\0')
@@ -86,4 +86,63 @@ char** tokenize(char* cmdline) {
     }
     arglist[argnum] = NULL;
     return arglist;
+}
+
+// ---------------- Command chaining (;) and background (&) ----------------
+
+// If the LAST token is "&", remove it and return 1 (background). Else 0.
+static int strip_ampersand(char** arglist) {
+    int last = 0;
+    while (arglist[last] != NULL) last++;
+    if (last > 0 && strcmp(arglist[last - 1], "&") == 0) {
+        free(arglist[last - 1]);
+        arglist[last - 1] = NULL;
+        return 1;
+    }
+    return 0;
+}
+
+// Runs ONE command (no ';' inside). Returns its exit status.
+static int run_single(char* cmd) {
+    char** arglist = tokenize(cmd);
+    if (arglist == NULL)
+        return 0;
+
+    int background = strip_ampersand(arglist);
+    int status = 0;
+
+    if (arglist[0] == NULL) {
+        fprintf(stderr, "myshell: syntax error near '&'\n");
+        status = 1;
+    } else {
+        if (handle_builtin(arglist) == 0)
+            status = execute(arglist, background);
+    }
+
+    for (int i = 0; arglist[i] != NULL; i++)
+        free(arglist[i]);
+    free(arglist);
+    return status;
+}
+
+// Splits the line at every ';' NOT inside quotes, runs pieces in order.
+int run_line(char* line) {
+    int status = 0;
+    char* start = line;
+    char quote = 0;
+
+    for (char* p = line; ; p++) {
+        if (*p == '"' || *p == '\'') {
+            if (quote == 0) quote = *p;
+            else if (quote == *p) quote = 0;
+        }
+        if ((*p == ';' && quote == 0) || *p == '\0') {
+            char saved = *p;
+            *p = '\0';
+            status = run_single(start);
+            if (saved == '\0') break;
+            start = p + 1;
+        }
+    }
+    return status;
 }

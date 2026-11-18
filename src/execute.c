@@ -1,8 +1,6 @@
 #include "shell.h"
 
 // Runs INSIDE THE CHILD, just before execvp().
-// Finds "<" and ">", opens the file, dup2()s it onto stdin/stdout,
-// and removes the operator + filename from args.
 static void apply_redirections(char** args) {
     int out = 0;
     for (int i = 0; args[i] != NULL; i++) {
@@ -23,11 +21,11 @@ static void apply_redirections(char** args) {
                 perror(args[i + 1]);
                 exit(1);
             }
-            dup2(fd, target);      // fd 0 (or 1) now points to the file
-            close(fd);             // original fd no longer needed
-            i++;                   // skip the filename token
+            dup2(fd, target);
+            close(fd);
+            i++;
         } else {
-            args[out++] = args[i]; // normal argument: keep it
+            args[out++] = args[i];
         }
     }
     args[out] = NULL;
@@ -40,9 +38,59 @@ static int exit_code(int status) {
     return 1;
 }
 
+// ---------------- Background job table ----------------
+#define MAX_JOBS 32
+#define JOB_CMD_LEN 256
+typedef struct {
+    pid_t pid;
+    char  cmd[JOB_CMD_LEN];
+} Job;
+
+static Job jobs[MAX_JOBS];
+static int njobs = 0;
+
+static void add_job(pid_t pid, char** args) {
+    if (njobs >= MAX_JOBS) {
+        fprintf(stderr, "myshell: too many background jobs\n");
+        return;
+    }
+    jobs[njobs].pid = pid;
+    jobs[njobs].cmd[0] = '\0';
+    for (int i = 0; args[i] != NULL; i++) {
+        strncat(jobs[njobs].cmd, args[i], JOB_CMD_LEN - strlen(jobs[njobs].cmd) - 2);
+        strncat(jobs[njobs].cmd, " ", JOB_CMD_LEN - strlen(jobs[njobs].cmd) - 1);
+    }
+    njobs++;
+    printf("[%d] %d\n", njobs, (int)pid);
+}
+
+// Called before every prompt: reap ALL finished children without blocking
+void reap_background(void) {
+    int status;
+    pid_t pid;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        for (int i = 0; i < njobs; i++) {
+            if (jobs[i].pid == pid) {
+                printf("[done] %d  %s\n", (int)pid, jobs[i].cmd);
+                for (int j = i + 1; j < njobs; j++)
+                    jobs[j - 1] = jobs[j];
+                njobs--;
+                break;
+            }
+        }
+    }
+}
+
+static void print_jobs(void) {
+    if (njobs == 0) {
+        printf("No background jobs.\n");
+        return;
+    }
+    for (int i = 0; i < njobs; i++)
+        printf("[%d] %d  Running  %s\n", i + 1, (int)jobs[i].pid, jobs[i].cmd);
+}
+
 // Forks one child that runs "args".
-//   in_fd / out_fd : if not -1, become the child's stdin / stdout
-//   pipefd         : if not NULL, both pipe ends are closed in the child
 static pid_t launch(char** args, int in_fd, int out_fd, int* pipefd) {
     pid_t pid = fork();
     if (pid < 0) {
@@ -58,14 +106,14 @@ static pid_t launch(char** args, int in_fd, int out_fd, int* pipefd) {
         }
         apply_redirections(args);
         execvp(args[0], args);
-        perror("Command not found");               // only if execvp failed
+        perror("Command not found");
         exit(1);
     }
     return pid;                                    // ---- PARENT ----
 }
 
 // Runs one command, or two commands joined by one pipe.
-int execute(char** arglist) {
+int execute(char** arglist, int background) {
     int status = 0;
 
     int pipe_pos = -1;
@@ -76,14 +124,18 @@ int execute(char** arglist) {
         }
     }
 
-    if (pipe_pos == -1) {                          // no pipe: fork-exec-wait
+    if (pipe_pos == -1) {
         pid_t pid = launch(arglist, -1, -1, NULL);
         if (pid < 0) return 1;
+        if (background) {                          // do NOT wait
+            add_job(pid, arglist);
+            return 0;
+        }
         waitpid(pid, &status, 0);
         return exit_code(status);
     }
 
-    char* left[MAXARGS + 1];                       // split WITHOUT modifying arglist
+    char* left[MAXARGS + 1];
     int n = 0;
     for (; n < pipe_pos; n++) left[n] = arglist[n];
     left[n] = NULL;
@@ -94,18 +146,22 @@ int execute(char** arglist) {
         return 1;
     }
 
-    int fd[2];                                     // fd[0] = read end, fd[1] = write end
+    int fd[2];
     if (pipe(fd) < 0) {
         perror("pipe failed");
         return 1;
     }
 
-    pid_t p1 = launch(left,  -1,    fd[1], fd);    // writer: stdout -> pipe
-    pid_t p2 = launch(right, fd[0], -1,    fd);    // reader: stdin  <- pipe
+    pid_t p1 = launch(left,  -1,    fd[1], fd);
+    pid_t p2 = launch(right, fd[0], -1,    fd);
 
-    close(fd[0]);                                  // parent closes BOTH ends,
-    close(fd[1]);                                  // else the reader never sees EOF
+    close(fd[0]);
+    close(fd[1]);
 
+    if (background) {
+        add_job(p2, right);
+        return 0;
+    }
     waitpid(p1, NULL, 0);
     waitpid(p2, &status, 0);
     return exit_code(status);
@@ -137,7 +193,7 @@ int handle_builtin(char** arglist) {
         printf("  exit         - terminate the shell\n");
         printf("  cd <dir>     - change the current directory\n");
         printf("  help         - show this help message\n");
-        printf("  jobs         - show background jobs (not implemented yet)\n");
+        printf("  jobs         - show background jobs\n");
         return 1;
     }
 
@@ -147,7 +203,7 @@ int handle_builtin(char** arglist) {
     }
 
     if (strcmp(arglist[0], "jobs") == 0) {
-        printf("Job control not yet implemented.\n");
+        print_jobs();
         return 1;
     }
 

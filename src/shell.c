@@ -60,3 +60,27 @@ char** tokenize(char* cmdline) {
     arglist[argnum] = NULL;
     return arglist;
 }
+// ---------------- Command history ----------------
+static char* history[HISTORY_SIZE];   // last 20 commands
+static int   hist_count = 0;          // how many are stored right now
+
+void add_to_history(const char* cmd) {
+    if (hist_count == HISTORY_SIZE) {             // full -> drop the OLDEST
+        free(history[0]);
+        for (int i = 1; i < HISTORY_SIZE; i++)    // shift everything left
+            history[i - 1] = history[i];
+        hist_count--;
+    }
+    history[hist_count++] = strdup(cmd);          // store a private copy
+}
+
+void show_history(void) {
+    for (int i = 0; i < hist_count; i++)
+        printf("%d  %s\n", i + 1, history[i]);    // numbering starts from 1
+}
+
+char* get_history(int n) {
+    if (n < 1 || n > hist_count)
+        return NULL;                              // out of bounds
+    return history[n - 1];
+}
